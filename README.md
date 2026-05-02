@@ -5,6 +5,8 @@ This repo contains a PowerShell collector that captures a broad diagnostic bundl
 ## Script
 
 - `scripts/Collect-PCDiagnostics.ps1`
+- `scripts/build-release.ps1`
+- `Build-Release.bat` (double-click release packager)
 - `Run-PCDiagnostics.bat` (double-click launcher, Quick mode)
 - `Run-PCDiagnostics-Full.bat` (double-click launcher, Full mode)
 - `Run-PCDiagnostics-Fast.bat` (double-click launcher, Fast mode / no burst sample)
