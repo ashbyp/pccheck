@@ -1,0 +1,231 @@
+You are a coding agent. Build a Windows PC diagnostics collection project from scratch in the current workspace.
+
+Project goal
+------------
+Create a one-click diagnostic collector for Windows performance issues. A user runs it while experiencing slowness/hangs. It collects broad diagnostics, writes results to Desktop (or falls back safely), creates a summary and raw artifacts, and optionally zips output for later analysis.
+
+Tech constraints
+----------------
+- Use PowerShell for the main collector script.
+- Add .bat launchers for non-technical users.
+- Do not require Python/Node/extra dependencies.
+- Keep everything ASCII.
+- Prefer robust error handling: one failed probe must not abort entire run.
+
+Required files to create
+------------------------
+1) scripts/Collect-PCDiagnostics.ps1
+2) Run-PCDiagnostics-Fast.bat
+3) Run-PCDiagnostics.bat
+4) Run-PCDiagnostics-Full.bat
+5) scripts/build-release.ps1
+6) Build-Release.bat
+7) README.md
+8) README-USER.txt
+9) AI-ANALYSIS-PROMPT-TEMPLATE.md
+10) .gitignore
+
+Collector script requirements (scripts/Collect-PCDiagnostics.ps1)
+-----------------------------------------------------------------
+Parameters:
+- Mode: Quick|Full (default Quick)
+- BurstDurationSeconds (default 30)
+- BurstIntervalSeconds (default 2)
+- RedactUserPaths (switch)
+- NoZip (switch)
+
+Behavior:
+- Create timestamped output folder:
+  PCDiag_YYYYMMDD_HHMMSS
+- Primary location: user Desktop.
+- If Desktop is not writable, fall back to current working directory and warn.
+- Create:
+  - summary.md
+  - manifest.json
+  - raw/*.json and raw/*.txt
+  - zip archive of run folder unless -NoZip
+
+Implementation quality:
+- Use strict mode and stop-on-error in script-level defaults.
+- Implement helper functions:
+  - Write-Status
+  - Ensure-Directory
+  - Safe-Name
+  - Redact-Text
+  - Save-Json
+  - Save-Text
+  - Invoke-Capture (critical: catches per-capture errors and logs them into manifest)
+  - Get-TopCpuProcessSummary (safe, returns empty on failure)
+  - Get-EventHighlights (safe)
+  - Get-DiskPressure (safe)
+  - Get-MemoryPressure (safe)
+  - Get-TopProcessSnapshot (safe replacement for fragile Get-Process CPU property use)
+
+Capture set (minimum):
+- os_and_uptime
+- cpu_memory_snapshot
+- disk_snapshot
+- network_snapshot
+- startup_and_tasks
+- drivers_and_gpu
+- windows_update_status
+- event_log_highlights
+- event_log_system_recent
+- event_log_application_recent
+- crash_artifacts
+- burst_timeseries (only if duration > 0 and interval > 0)
+- computer_info (Full mode only)
+
+Quick vs Full rules:
+- Full:
+  - include computer_info
+  - event lookback: 72h
+  - event rows up to 1000
+- Quick:
+  - skip computer_info
+  - event lookback: 24h
+  - event rows around 300
+  - still include burst_timeseries by default
+
+Progress visibility:
+- Print live progress for each section:
+  - "Collecting: <name>"
+  - "Done: <name>" or "Failed: <name>"
+- Print final Summary and Archive path.
+
+Robustness:
+- No single probe failure should terminate the run.
+- Summary generation must not call brittle probes unsafely; wrap with safe helpers.
+- Redaction switch should replace user profile path with %USERPROFILE% in written text/json.
+
+Summary.md content requirements:
+- Run metadata (time, mode, output folder, lookback hours)
+- Quick signals:
+  - memory usage
+  - system/application error+warning counts
+- Potential issues:
+  - low disk free list (<15%)
+  - top CPU consumers sample
+  - collection errors list from manifest
+- Next analysis steps (short bullet list)
+
+Manifest.json requirements:
+- tool name + version
+- mode
+- redacted flag
+- burst settings
+- startedAt / endedAt
+- artifacts array with:
+  - name
+  - status (ok/error)
+  - started/ended
+  - files
+  - error
+
+BAT launchers
+-------------
+Run-PCDiagnostics-Fast.bat:
+- Runs Quick mode with burst disabled:
+  powershell ... Collect-PCDiagnostics.ps1 -Mode Quick -BurstDurationSeconds 0
+- Pause at end and show success/failure.
+
+Run-PCDiagnostics.bat:
+- Runs Quick mode with burst enabled:
+  -BurstDurationSeconds 30 -BurstIntervalSeconds 2
+- Pause at end and show success/failure.
+
+Run-PCDiagnostics-Full.bat:
+- Runs Full mode:
+  -BurstDurationSeconds 120 -BurstIntervalSeconds 2
+- Pause at end and show success/failure.
+
+Release packaging
+-----------------
+scripts/build-release.ps1:
+- Params:
+  - Version (default 0.1.0)
+  - OutDir (default .\dist)
+- Build staged folder:
+  dist\pccheck-release-<Version>\
+- Copy into staged folder:
+  - Run-PCDiagnostics-Fast.bat
+  - Run-PCDiagnostics.bat
+  - Run-PCDiagnostics-Full.bat
+  - README-USER.txt
+  - README.md
+  - scripts\Collect-PCDiagnostics.ps1
+- Create zip:
+  dist\pccheck-release-<Version>.zip
+- Overwrite existing stage/zip safely.
+
+Build-Release.bat:
+- Double-click wrapper for scripts/build-release.ps1
+- Optional first arg overrides version.
+- Pause and show success/failure.
+
+Documentation
+-------------
+README.md:
+- Explain project purpose.
+- List data captured.
+- Show PowerShell usage examples.
+- Explain 3 launchers and expected runtimes:
+  - Fast: under ~2 min
+  - Quick: ~1-3 min
+  - Full: ~3-8 min
+- Mention live "Collecting/Done" progress lines.
+- Mention possible permission-related partial failures are logged.
+
+README-USER.txt:
+- Plain non-technical instructions:
+  - extract zip
+  - double-click Fast first
+  - send generated PCDiag_....zip from Desktop back to support
+- include simple troubleshooting (Run as admin, SmartScreen note).
+
+AI-ANALYSIS-PROMPT-TEMPLATE.md:
+- Provide a reusable prompt for a separate AI to analyze a PCDiag zip.
+- Must request:
+  - ranked root causes with confidence
+  - exact evidence (files, event IDs, timestamps)
+  - primary vs secondary distinction
+  - prioritized fixes + validation checklist
+  - "If I can only do 3 things now" section
+
+.gitignore
+----------
+Must include at minimum:
+- .idea/
+- .tmp/
+- dist/
+- PCDiag_*/
+- PCDiag_*.zip
+- *.log
+- *.tmp
+
+Validation steps (agent must run)
+---------------------------------
+1) Run a quick smoke test:
+   powershell -ExecutionPolicy Bypass -File .\scripts\Collect-PCDiagnostics.ps1 -Mode Quick -BurstDurationSeconds 4 -BurstIntervalSeconds 2 -NoZip
+2) Confirm output folder contains:
+   - summary.md
+   - manifest.json
+   - raw artifacts
+3) Run release build:
+   powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Version 0.1.0
+4) Confirm dist zip exists.
+
+Important implementation notes
+------------------------------
+- In some environments, specific CIM/Event calls may fail with Access Denied. Capture and continue.
+- Avoid fragile use of Get-Process CPU property; use TotalProcessorTime safely in helper.
+- Keep script read-only in intent: no system configuration changes.
+- Do not require internet.
+
+Deliverables expected from you
+------------------------------
+1) All files created and populated.
+2) Collector script executes and produces output bundle.
+3) Release zip build works.
+4) Final response listing created files and exact run commands used.
+
