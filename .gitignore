@@ -1,0 +1,10 @@
+.idea/
+.tmp/
+
+# Generated diagnostic output bundles
+PCDiag_*/
+PCDiag_*.zip
+
+# PowerShell/editor noise
+*.log
+*.tmp
