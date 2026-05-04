@@ -15,6 +15,7 @@ This repo contains a PowerShell collector that captures a broad diagnostic bundl
 
 - System/OS/hardware details
 - CPU and memory snapshots (including top processes)
+- Process attribution snapshot (PID, parent PID, command line, executable path)
 - Disk health and free-space pressure
 - Network adapters and active connections snapshot
 - Startup items, scheduled tasks, automatic services

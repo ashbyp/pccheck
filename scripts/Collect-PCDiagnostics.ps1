@@ -224,6 +224,58 @@ function Get-TopProcessSnapshot {
     $items | Sort-Object CPUSeconds -Descending | Select-Object -First $MaxCount
 }
 
+function Get-ProcessAttribution {
+    param([int]$MaxCount = 200)
+
+    try {
+        $procMap = @{}
+        foreach ($p in Get-Process -ErrorAction SilentlyContinue) {
+            $procMap[[int]$p.Id] = $p
+        }
+
+        $cimProcs = Get-CimInstance Win32_Process -ErrorAction Stop
+        $items = New-Object System.Collections.Generic.List[object]
+
+        foreach ($cp in $cimProcs) {
+            $pid = [int]$cp.ProcessId
+            $cpuSeconds = $null
+            $wsMB = $null
+            $pmMB = $null
+            $startTime = $null
+
+            if ($procMap.ContainsKey($pid)) {
+                $pp = $procMap[$pid]
+                try {
+                    if ($null -ne $pp.TotalProcessorTime) {
+                        $cpuSeconds = [math]::Round($pp.TotalProcessorTime.TotalSeconds, 2)
+                    }
+                } catch {}
+                try { $wsMB = [math]::Round($pp.WorkingSet64 / 1MB, 2) } catch {}
+                try { $pmMB = [math]::Round($pp.PrivateMemorySize64 / 1MB, 2) } catch {}
+                try { $startTime = $pp.StartTime } catch {}
+            }
+
+            $items.Add([pscustomobject]@{
+                Name = $cp.Name
+                Id = $pid
+                ParentProcessId = [int]$cp.ParentProcessId
+                CommandLine = $cp.CommandLine
+                ExecutablePath = $cp.ExecutablePath
+                CPUSeconds = $cpuSeconds
+                WorkingSetMB = $wsMB
+                PrivateMemoryMB = $pmMB
+                StartTime = $startTime
+            }) | Out-Null
+        }
+
+        $items |
+            Sort-Object @{Expression = { if ($null -eq $_.CPUSeconds) { -1 } else { $_.CPUSeconds } }; Descending = $true} |
+            Select-Object -First $MaxCount
+    } catch {
+        @()
+    }
+}
+
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $desktopPath = [Environment]::GetFolderPath("Desktop")
 $rootName = "PCDiag_{0}" -f $timestamp
@@ -279,6 +331,7 @@ Invoke-Capture -Name "cpu_memory_snapshot" -OutDir $rawDir -Manifest $manifest -
         memory = Get-MemoryPressure
         topCpuProcesses = $proc
         topCpuLiveCounter = Get-TopCpuProcessSummary
+        processAttribution = Get-ProcessAttribution -MaxCount 300
         processor = Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed
     }
 }
